@@ -1,0 +1,1 @@
+Goal of this project to create smart-home automation system based on Raspberry Pi & Arduino
