@@ -31,21 +31,23 @@ void setup() {
 
 void loop()
 {
-  Serial.println("Hello Pi");
   if (Serial.available())
   {
-     flash(Serial.read() - '0');
+      flash(Serial.read() - '0');
+      delay(1000);
   }
-  delay(1000);
 }
 
 void flash(int n)
 {
-  for (int i = 0; i < n; i++)
-  {
+  if(n==1){
     mySwitch.send(13456653, 24);
-    delay(1000);
-    mySwitch.send(13456653, 24);
-    delay(1000);    
   }
+  //for (int i = 0; i < n; i++)
+  //{
+  //  mySwitch.send(13456653, 24);
+  //  delay(1000);
+  //  mySwitch.send(13456653, 24);
+  //  delay(1000);
+ //}
 }
