@@ -44,26 +44,27 @@ class device   // includes lights and outlets
       deviceSendCommand = n;
       break;
      }
-     delay(500);
+     delay(500); //must be here - otherwise doesn't read from Rasp correctly
     }
-   deviceNumber = tempDeviceNumber_1*10 + tempDeviceNumber_2;
-   switchON(); 
+   deviceNumber = tempDeviceNumber_1*10 + tempDeviceNumber_2; //calculating deviceNumber 
 }
  void action(int code) //executes action based on device status (last digit in code)
    {
-     switch (code) { //checking deviceSendStatus variable to send right command to device
-    case 0:    // switch outlet off
+      switch (code) { //checking deviceSendStatus variable to send right command to device
+    case '0':    // switch outlet off
       switchOFF();
       break;
-    case 1:    // switch outlet on
+    case '1':    // switch outlet on
       switchON();
       break;
-    case 2:    
+    case '2':    
       switchON(); //for lamps only. will work as on/off.
       break;
      }
    }
+
 private: 
+
  void switchON() //sends switch on code to device
    {
      mySwitch.send(deviceCodeOn, 24);
