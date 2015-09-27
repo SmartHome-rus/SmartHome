@@ -1,14 +1,40 @@
-/*
-  Example for different sending methods
-  
-  http://code.google.com/p/rc-switch/
-  
-  Need help? http://forum.ardumote.com
-*/
-
 #include <RCSwitch.h>
 
 RCSwitch mySwitch = RCSwitch();
+
+class device   // includes lights and outlets
+{
+ public:
+ int deviceStatus; //1 or 0 - contains current device status
+ int deviceCodeOn; //8 digit unique code like 13456653 for switching device ON
+ int deviceCodeOff; //8 digit unique code like 13456653 for switching device OFF
+ 
+ 
+ int action(int code) //executes action based on device status (last digit in code)
+   {
+     switch (code) { //switch case will act based on status 0,1,2
+    case 0:    // switch outlet off
+      switchOFF();
+      break;
+    case 1:    // switch outlet on
+      switchON();
+      break;
+    case 2:    // your hand is a few inches from the sensor
+      switchON(); //for lamps only. will work as on/off.
+      break;
+     }
+   }
+ 
+ void switchON() //sends switch on code to device
+   {
+     mySwitch.send(deviceCodeOn, 24);
+  } 
+ 
+ void switchOFF() //sends switch off code to device
+   {
+     mySwitch.send(deviceCodeOff, 24);
+   }
+}; 
 
 void setup() {
 
@@ -33,16 +59,17 @@ void loop()
 {
   if (Serial.available())
   {
-      flash(Serial.read() - '0');
+      String n = Serial.read();
+      codeSplit(n);
       delay(1000);
   }
 }
 
-void flash(int n)
+void codeSplit(String n)
 {
-  if(n==1){
+  
     mySwitch.send(13456653, 24);
-  }
+  
   //for (int i = 0; i < n; i++)
   //{
   //  mySwitch.send(13456653, 24);
