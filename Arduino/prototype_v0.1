@@ -1,0 +1,822 @@
+
+/*
+PINs
+
+Digital
+1
++2 - 433 Receiver
+3
+4
+5
+6
++7 - 433 Sender
+8
++9 - IR sender
+10
+11
+12
+13
+14
+15
+16
++17 - Bottle temp sensor
+18
+19
+20 - Sound detector
+21
+22
+23
+24
++25 - power switcher
+26
+27
+28
+29
+30
+31
++32 - Hall sensor
+33
+34
+35
++36 - motion sensor 1
+37
+38
+39
++40 - IR receiver
++41 - Temp DS18B20 - Open
+42
+43
+44
+45
+46
+47
+48
+49
+50 - motion sensor 2
+51
+52
+53
+54
+55
+56
+57
+58
+59
+
+
+Analog
+1
+2
+3
+4
+5
++6 - DHT11
+7
+8
+9
++10 - DHT22
+11
+12
+13
++14 - light sensor
+15
+16
+17
+18
+19
+20
+
+*/
+#include <DHT.h>
+#include <RCSwitch.h>
+#include "OneWire.h"
+#include <IRremote.h>
+#include <DallasTemperature.h>
+#include <Time.h>  
+#include <Wire.h>  
+#include <DS1307RTC.h>  // a basic DS1307 library that returns time as a time_t
+
+#define CODE_1On 349635  
+#define CODE_1Off 349644
+#define CODE_2On 349491
+#define CODE_2Off 349500
+#define CODE_3 13456833 // "5"
+#define CODE_4 13456689 // 6 - Corner lamp
+#define ONE_WIRE_BUS 41
+#define ONE_WIRE_BUS_BOTTLE 17
+#define CURR_DATE_TIME 1445610182    // date +T%s 
+#define RECV_PIN 40
+
+int PIN_A14 = 0;
+int PIN_D50 = 0;
+int PIN_D32 = 0;
+int PIN_D36 = 0;
+
+boolean update_info = 0;
+
+/*================ GENERIC CLASS - DEVICE ==============*/
+class DEVICE {
+ public:
+ int id;            // ID of the Device
+ char* name;        // Name of the Device
+ int type;          // 1-Digital, 2-Analog
+ int location;      // Location of the device: 1-Living, 2-Sleeping, 3-Kitch, 4-Corridor, 5-Bath
+ int pin;           // Pin number
+  
+};
+/*================ END OF DEVICE CLASS ================*/
+
+/*================  SENSOR CLASS  ====================*/
+class SENSOR : public DEVICE {  // Inherit from the DEVICE
+ public:
+   boolean state;             // For Digital Sensors
+   double value_numeric[];    // Numeric Values of the sensor
+   char* value_char[];        // String value of the sensor
+ 
+ void init() {
+   
+ }
+ 
+ 
+ void funct(){
+ 
+ Serial.print("Testing function - id of sensor");
+ Serial.print(id);
+ Serial.print(",  name of sensor");
+ Serial.println(name);
+ 
+ 
+ }
+ 
+  
+};
+/*================ END OF SENSOR CLASS ================*/
+
+/*================  CONTROL UNIT CLASS  ====================*/
+class CONTROL : public DEVICE {  // Inherit from the DEVICE
+ public:
+   boolean state;     // For Digital Sensors
+   double value_numeric[];    // Values of the sensor
+   char* value_char[];
+ 
+ void init() {
+   
+ }
+ 
+ 
+ void funct(){
+ 
+ 
+ 
+ }
+ 
+  
+};
+/*================ END OF CONTROL UNIT CLASS ================*/
+
+
+SENSOR sens[2];
+
+
+
+
+IRrecv irrecv(RECV_PIN);
+
+int pwrSocketStatus = 0;
+float bottleTemp = 0;
+float roomTemp = 0;
+float humid = 0;
+float humid22 = 0;
+
+int bottle_heater = 1;
+  unsigned long end_time;
+IRsend irsend;
+decode_results results;
+int codeType = -1; // The type of code
+unsigned long codeValue; // The code value if not raw
+unsigned int rawCodes[RAWBUF]; // The durations if raw
+int codeLen; // The length of the code
+int toggle = 0; // The RC5/6 toggle state
+int lastButtonState;
+
+//OneWire - Dallas======================================================================
+// Setup a oneWire instance to communicate with any OneWire devices (not just Maxim/Dallas temperature ICs)
+OneWire oneWire (ONE_WIRE_BUS);
+OneWire oneWire_bottle (ONE_WIRE_BUS_BOTTLE);
+// Pass our oneWire reference to Dallas Temperature. 
+DallasTemperature sensors(&oneWire);
+DallasTemperature sensors_bottle(&oneWire_bottle);
+//======================================================================================
+
+DHT dht;                            // DHT 11 sensor
+DHT dht22;                          // DHT22
+RCSwitch mySwitch = RCSwitch();     // 433 Sender
+RCSwitch mySwitchRec = RCSwitch();  // 433 Receiver 
+
+// SETUP ===============================================================================
+void setup(void) {
+  
+  pinMode(36, INPUT);  // motion sensor 1
+  
+  pinMode(25, OUTPUT); // power switcher
+
+  Serial.begin(9600);
+   mySwitch.enableTransmit(7);    // transmitter on pin 7
+   mySwitch.setPulseLength(183);  // For power outlets - sniffed from Remote Control
+   mySwitchRec.enableReceive(0);  // Receiver on inerrupt 0 => that is pin #2
+   dht.setup(A7);      // DHT 11 sensor on pin A3
+   dht22.setup(A10);
+   irrecv.enableIRIn();
+    
+   sensors.begin();  //dallas
+   sensors_bottle.begin();  //dallas
+  
+   time_t t = CURR_DATE_TIME +10800;  
+    if (t != 0) {
+      RTC.set(t);   // set the RTC and the system time to the received value
+      setTime(t);
+     while (!Serial) ; // Needed for Leonardo only
+  setSyncProvider(RTC.get);   // the function to get the time from the RTC
+  if (timeStatus() != timeSet) 
+     Serial.println("Unable to sync with the RTC");
+  else
+     Serial.println("RTC has set the system time");  
+    }  
+  
+  
+  
+  sens[0].id = 1;
+  sens[0].name = "IR";
+  sens[1].id = 2;
+  sens[1].name = "433";
+  
+
+}
+// SETUP ===============================================================================
+
+
+void digitalClockDisplay(){
+  // digital clock display of the time
+  Serial.print(hour());
+  printDigits(minute());
+  printDigits(second());
+  Serial.print("    ");
+  Serial.print(day());
+  Serial.print("/");
+  Serial.print(month());
+  Serial.print("/");
+  Serial.print(year()); 
+  Serial.print("    -  "); 
+}
+
+void printDigits(int digits){
+  // utility function for digital clock display: prints preceding colon and leading 0
+  Serial.print(":");
+  if(digits < 10)
+    Serial.print('0');
+  Serial.print(digits);
+}
+
+/*  code to process time sync messages from the serial port   */
+#define TIME_HEADER  "T"   // Header tag for serial time sync message
+
+unsigned long processSyncMessage() {
+  unsigned long pctime = 0L;
+  const unsigned long DEFAULT_TIME = 1445538650; // Jan 1 2013 
+
+  if(Serial.find(TIME_HEADER)) {
+     pctime = Serial.parseInt();
+     return pctime;
+     if( pctime < DEFAULT_TIME) { // check the value is a valid time (greater than Jan 1 2013)
+       pctime = 0L; // return 0 to indicate that the time is not valid
+     }
+  }
+  return pctime;
+}
+
+
+
+/////////////////////
+////////IR Receive///
+/////////////////////
+
+//+=============================================================================
+// Display IR code
+//
+void  ircode (decode_results *results)
+{
+  // Panasonic has an Address
+  if (results->decode_type == PANASONIC) {
+    Serial.print(results->address, HEX);
+    Serial.print(":");
+  }
+
+  // Print Code
+  Serial.print(results->value, HEX);
+}
+
+//+=============================================================================
+// Display encoding type
+//
+void  encoding (decode_results *results)
+{
+  switch (results->decode_type) {
+    default:
+    case UNKNOWN:      Serial.print("UNKNOWN");       break ;
+    case NEC:          Serial.print("NEC");           break ;
+    case SONY:         Serial.print("SONY");          break ;
+    case RC5:          Serial.print("RC5");           break ;
+    case RC6:          Serial.print("RC6");           break ;
+    case DISH:         Serial.print("DISH");          break ;
+    case SHARP:        Serial.print("SHARP");         break ;
+    case JVC:          Serial.print("JVC");           break ;
+    case SANYO:        Serial.print("SANYO");         break ;
+    case MITSUBISHI:   Serial.print("MITSUBISHI");    break ;
+    case SAMSUNG:      Serial.print("SAMSUNG");       break ;
+    case LG:           Serial.print("LG");            break ;
+    case WHYNTER:      Serial.print("WHYNTER");       break ;
+    case AIWA_RC_T501: Serial.print("AIWA_RC_T501");  break ;
+    case PANASONIC:    Serial.print("PANASONIC");     break ;
+    case DENON:        Serial.print("Denon");         break ;
+  }
+}
+
+//+=============================================================================
+// Dump out the decode_results structure.
+//
+void  dumpInfo (decode_results *results)
+{
+  // Check if the buffer overflowed
+  if (results->overflow) {
+    Serial.println("IR code too long. Edit IRremoteInt.h and increase RAWLEN");
+    return;
+  }
+
+  // Show Encoding standard
+  Serial.print("Encoding  : ");
+  encoding(results);
+  Serial.println("");
+
+  // Show Code & length
+  Serial.print("Code      : ");
+  ircode(results);
+  Serial.print(" (");
+  Serial.print(results->bits, DEC);
+  Serial.println(" bits)");
+}
+
+//+=============================================================================
+// Dump out the decode_results structure.
+//
+void  dumpRaw (decode_results *results)
+{
+  // Print Raw data
+  Serial.print("Timing[");
+  Serial.print(results->rawlen-1, DEC);
+  Serial.println("]: ");
+
+  for (int i = 1;  i < results->rawlen;  i++) {
+    unsigned long  x = results->rawbuf[i] * USECPERTICK;
+    if (!(i & 1)) {  // even
+      Serial.print("-");
+      if (x < 1000)  Serial.print(" ") ;
+      if (x < 100)   Serial.print(" ") ;
+      Serial.print(x, DEC);
+    } else {  // odd
+      Serial.print("     ");
+      Serial.print("+");
+      if (x < 1000)  Serial.print(" ") ;
+      if (x < 100)   Serial.print(" ") ;
+      Serial.print(x, DEC);
+      if (i < results->rawlen-1) Serial.print(", "); //',' not needed for last one
+    }
+    if (!(i % 8))  Serial.println("");
+  }
+  Serial.println("");                    // Newline
+}
+
+//+=============================================================================
+// Dump out the decode_results structure.
+//
+void  dumpCode (decode_results *results)
+{
+  // Start declaration
+  Serial.print("unsigned int  ");          // variable type
+  Serial.print("rawData[");                // array name
+  Serial.print(results->rawlen - 1, DEC);  // array size
+  Serial.print("] = {");                   // Start declaration
+
+  // Dump data
+  for (int i = 1;  i < results->rawlen;  i++) {
+    Serial.print(results->rawbuf[i] * USECPERTICK, DEC);
+    if ( i < results->rawlen-1 ) Serial.print(","); // ',' not needed on last one
+    if (!(i & 1))  Serial.print(" ");
+  }
+
+  // End declaration
+  Serial.print("};");  // 
+
+  // Comment
+  Serial.print("  // ");
+  encoding(results);
+  Serial.print(" ");
+  ircode(results);
+
+  // Newline
+  Serial.println("");
+
+  // Now dump "known" codes
+  if (results->decode_type != UNKNOWN) {
+
+    // Some protocols have an address
+    if (results->decode_type == PANASONIC) {
+      Serial.print("unsigned int  addr = 0x");
+      Serial.print(results->address, HEX);
+      Serial.println(";");
+    }
+
+    // All protocols have data
+    Serial.print("unsigned int  data = 0x");
+    Serial.print(results->value, HEX);
+    Serial.println(";");
+  }
+}
+/////////////////////
+///IR Receive - end//
+/////////////////////
+
+
+
+ int codeRead_() //reading 6 digit code from Raspberry and translating it into variables
+{
+  int n = 0; //will use this variable to read from Raspberry
+  int d1 = 0;
+  int d2 = 0; 
+  int d3 = 0;
+  int deviceNum = 0;
+  for (int y=0; y<3; y++) //runing loop until we read every number in recieving code
+    {
+      n = Serial.read(); //reding from serial port
+      //Serial.write(n); //for debugging 
+      switch (y) { //will be assigning current n to different variables based on the position in the code: 1 - device_type, 2 - device room, etc.
+    case 0:    // reading deviceMode
+      d1 = n;
+      break;
+    case 1:    // reading deviceType
+      d2 = n;
+      break;
+    case 2:    // reading device Room
+      d3 = n;
+      break;
+    }
+    }
+   deviceNum = (d1-48)*100 + (d2-48)*10 + (d3-48)*1; //calculating deviceNumber 
+   
+   
+   return (deviceNum);
+}
+
+
+void loop(void) {
+
+  delay(dht.getMinimumSamplingPeriod());
+  float humidity = dht.getHumidity();
+  float temperature = dht.getTemperature();
+  delay(dht22.getMinimumSamplingPeriod());
+  float humidity22 = dht22.getHumidity();
+  float temperature22 = dht22.getTemperature();
+  
+  
+  sensors_bottle.requestTemperatures();
+  float celsius = sensors_bottle.getTempCByIndex(0);
+ 
+  if ((sensors_bottle.getTempCByIndex(0) - bottleTemp)>0.5 || (-(sensors_bottle.getTempCByIndex(0) - bottleTemp)>0.5) ) {
+      digitalClockDisplay();
+     Serial.print("Bottle Temp = ");
+      bottleTemp = sensors_bottle.getTempCByIndex(0);
+      Serial.println(bottleTemp);
+
+  }  
+  
+  if (celsius > 37.1 && pwrSocketStatus == 1 && bottle_heater==1) { 
+     digitalClockDisplay();
+    mySwitch.send(CODE_1Off, 24);
+    pwrSocketStatus = 0;
+    Serial.println("Bottle =OFF=");
+
+  }
+  
+  if (celsius > 43 && bottle_heater==1 ) {
+      digitalClockDisplay();
+   mySwitch.send(CODE_1Off, 24);
+    pwrSocketStatus = 0;
+    Serial.println("Bottle =OFF=");
+
+  }
+    
+  if (celsius <37 && pwrSocketStatus == 0 && bottle_heater==1)  {
+      digitalClockDisplay();
+   mySwitch.send(CODE_1On, 24);
+    Serial.println("Bottle =ON=");
+    pwrSocketStatus = 1;
+
+  }
+  
+  if (celsius < 36 && bottle_heater==1) {
+    mySwitch.send(CODE_1On, 24);
+    pwrSocketStatus = 1;
+     digitalClockDisplay();
+    Serial.println("Bottle =ON=");
+
+  }
+ 
+  if  ((humidity - humid)>1.5 || (-(humidity - humid)>1.5)  ){
+    humid = humidity;
+      digitalClockDisplay();
+   Serial.print("DHT Temp / Humid --> ");
+    Serial.print(temperature, 1);
+    Serial.print(" / ");
+    Serial.println(humidity, 1);
+
+  }
+    if  ((humidity22 - humid22)>1 || (-(humidity22 - humid22)>1)  ){
+    humid22 = humidity22;
+     digitalClockDisplay();
+
+    Serial.print("DHT22 Temp / Humid --> ");
+    Serial.print(temperature22, 1);
+    Serial.print(" / ");
+    Serial.println(humidity22, 1);
+
+  }
+  
+  sensors.requestTemperatures();  
+  if ((sensors.getTempCByIndex(0) - roomTemp)>0.5 || (-(sensors.getTempCByIndex(0) - roomTemp)>0.5) ) {
+    digitalClockDisplay();
+    Serial.print("Room Temp C: ");
+    roomTemp = sensors.getTempCByIndex(0);
+    Serial.println(roomTemp); 
+     
+
+  }
+
+// Light Sensor
+  int a14 = analogRead(A14);
+  if((a14-PIN_A14)>20 || (PIN_A14 - a14)>20 ){
+   PIN_A14 = a14;
+   digitalClockDisplay();
+   Serial.println (PIN_A14);
+   
+  }
+
+// Hall sensor
+  int d32 = digitalRead(32);
+  if((d32 != PIN_D32)){
+   PIN_D32 = d32;
+   digitalClockDisplay();
+   Serial.println (PIN_D32);
+   
+  }
+
+// Motion Sensor 1
+  int d36 = digitalRead(36);
+  
+  if((d36 == 1) ){  // Motion detected - setup timer - switch on
+   PIN_D36 = 1;
+   unsigned long start_time = hour()*3600+minute()*60+second();
+   digitalWrite(25, HIGH);
+   end_time = start_time + 60;
+  } 
+ 
+  if((d36 == 0) && (PIN_D36 == 1)){  // No motion - timer is ticking
+   unsigned long curr_time = hour()*3600+minute()*60+second();
+   if (curr_time > end_time){  // time is over - switch off
+     digitalWrite(25, LOW);
+       PIN_D36 = 0;
+   }
+  } 
+  
+ 
+
+if (Serial.available()) //checking if serail port is avaliable
+  {
+    switch (codeRead_()) { 
+    case 111:  // Vent ON  
+      mySwitch.send(349491, 24);
+      break;
+    case 110:  // Vent OFF
+      mySwitch.send(349500, 24);
+      break;
+    case 120:    // 
+      mySwitch.send(12598467, 24);
+      break;
+    case 121:    // 
+      mySwitch.send(12598275, 24);
+      break;
+    case 122:    // 
+      mySwitch.send(12598464, 24);
+      break;
+    case 123:    // 
+      mySwitch.send(12598320, 24);
+      break;
+    case 124:    // 
+      mySwitch.send(12598284, 24);
+      break;
+    case 125:    // 
+      mySwitch.send(13456833, 24);
+      break;
+    case 126:    //
+      mySwitch.send(13456689, 24);
+      break;
+    case 131:    //
+      mySwitch.send(16047363, 24);
+      break;
+    case 132:    // 
+      mySwitch.send(16047552, 24);
+      break;
+    case 133:    // 
+      mySwitch.send(16047408, 24);
+      break;
+    case 134:    // 
+      mySwitch.send(16047372, 24);
+      break;
+    case 130:    // 
+      mySwitch.send(16047555, 24);
+      break;
+    case 141:    //
+      for (int tr=0; tr<3; tr++){
+        irsend.sendNEC(0x800FF, 32);
+        delay(40);
+      }
+      break;
+    case 142:    //
+      for (int tr=0; tr<5; tr++){
+        irsend.sendSAMSUNG(0xE0E040BF, 32);
+        delay(40);
+      }
+      break;
+    case 143:    //
+      for (int tr=0; tr<3; tr++){
+        irsend.sendNEC(0x7E8154AB, 32);
+        delay(40);
+      }      
+      break;
+    case 144:    //
+      for (int tr=0; tr<3; tr++){
+        irsend.sendNEC(0x77E1BA21, 32);
+        delay(40);
+      }
+      break;
+    case 190:    // 
+      mySwitch.send(12598467, 24);
+      mySwitch.send(16047555, 24);
+      break;
+    case 191:    // 
+      mySwitch.send(12598467, 24);
+      mySwitch.send(16047555, 24);
+      mySwitch.send(13456833, 24);
+      mySwitch.send(13456689, 24);
+      break;
+    case 198:    // 
+      mySwitch.send(16047372, 24);
+      mySwitch.send(12598284, 24);
+      mySwitch.send(13456833, 24);
+      mySwitch.send(13456689, 24);
+      break;
+    case 199:    // 
+      mySwitch.send(16047372, 24);
+      mySwitch.send(12598284, 24);
+      break;
+    case 211:    // 
+      mySwitch.send(5033987, 24);
+      break;
+    case 212:    // 
+      mySwitch.send(5033996, 24);
+      break;
+    case 213:    // 
+      mySwitch.send(5034032, 24);
+      break;
+    case 214:    // 
+      mySwitch.send(5033984, 24);
+      break;
+    case 788:    // 
+      bottleTemp=0;
+      humid=0;
+      humid22=0;
+      roomTemp=0;
+      break;
+     
+    case 841:    // source
+      for (int tr=0; tr<3; tr++){
+        irsend.sendSAMSUNG(0xE0E0807F, 32);
+        delay(40);
+      }
+      break;
+    case 842:    // arrow down
+      for (int tr=0; tr<3; tr++){
+        irsend.sendSAMSUNG(0xE0E08679, 32);
+        delay(40);
+      }
+      break;
+    case 843:    // arrow up
+      for (int tr=0; tr<3; tr++){
+        irsend.sendSAMSUNG(0xE0E006F9, 32);
+        delay(40);
+      }
+      break;
+    case 844:    
+      for (int tr=0; tr<3; tr++){
+        irsend.sendSAMSUNG(0xE0E016E9, 32);
+        delay(40);
+      }
+      break;
+    case 845:    
+      for (int tr=0; tr<2; tr++){
+        irsend.sendNEC(0x8F807, 32);
+        delay(40);
+      }
+      break;
+    case 846:    
+      for (int tr=0; tr<2; tr++){
+        irsend.sendNEC(0x802FD, 32);
+        delay(40);
+      }
+      break;
+    case 847:    
+        irsend.sendNEC(0x808F7, 32);
+     
+      break;
+    case 848:   
+        irsend.sendNEC(0x8F00F, 32);
+      
+      break;
+    case 849:    
+        irsend.sendNEC(0x8C03F, 32);
+       
+      break;
+    case 850:    
+        irsend.sendNEC(0x8C03F, 32);
+        delay(40);
+        irsend.sendNEC(0x810EF, 32);
+        delay(40);
+        irsend.sendNEC(0x8D02F, 32);
+      break;
+    case 851:    
+        irsend.sendNEC(0x8A05F, 32);
+        delay(40);
+        irsend.sendNEC(0x810EF, 32);
+        delay(40);
+        irsend.sendNEC(0x810EF, 32);
+      break;
+    case 852:    
+        irsend.sendNEC(0x8609F, 32);
+       
+      break;
+    case 770:    
+        bottle_heater = 0;
+       
+      break;
+    case 771:    
+        bottle_heater = 1;
+       
+      break;
+    }
+   
+ 
+
+}
+
+
+// Code for sniffing RF Codes
+  if (mySwitchRec.available()) {
+    int value = mySwitchRec.getReceivedValue();
+    if (value == 0) {
+      Serial.println("Unknown encoding");
+    } else {
+    digitalClockDisplay();
+    Serial.print("Received ");
+      Serial.print( mySwitchRec.getReceivedValue() );
+      Serial.print(" / ");
+      Serial.print( mySwitchRec.getReceivedBitlength() );
+      Serial.print("bit ");
+      Serial.print("Protocol: ");
+      Serial.print( mySwitchRec.getReceivedProtocol() );
+      Serial.print(" Delay: ");
+      Serial.println( mySwitch.getReceivedDelay());
+    }
+    mySwitchRec.resetAvailable();
+  }
+  
+///////IR Receive /////////////
+//  decode_results  results;        // Somewhere to store the results
+  if (irrecv.decode(&results)) {  // Grab an IR code
+    dumpInfo(&results);           // Output the results
+    dumpRaw(&results);            // Output the results in RAW format
+    dumpCode(&results);           // Output the results as source code
+    Serial.println("");           // Blank line between entries
+    irrecv.resume();              // Prepare for the next value
+  }
+  
+
+  
+}
